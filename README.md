@@ -25,7 +25,8 @@ npm run start:dev
 2️⃣ Frontend Setup (Next.js)
 Set up the frontend client:
 ```bash
-cd ../frontendnpm install
+cd ../frontend
+npm install
 npm run dev
 ```
 🧑‍💻 How to Use
