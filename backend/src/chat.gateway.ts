@@ -6,15 +6,26 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
   SubscribeMessage,
+  MessageBody,
+  ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
-@WebSocketGateway()
+@WebSocketGateway({
+  cors: {
+    origin: '*', // allow all origins (for demo).
+  },
+})
 export class ChatGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer() server: Server;
-  private clients: Map<string, string> = new Map();
+
+  // Lưu userId -> socketId
+  private userSocketMap: Map<string, string> = new Map();
+  private socketUserMap: Map<string, string> = new Map();
+  private userInfoMap: Map<string, { id: string; username: string }> =
+    new Map();
 
   afterInit() {
     console.log('WebSocket Gateway Initialized');
@@ -22,37 +33,99 @@ export class ChatGateway
 
   handleConnection(client: Socket) {
     console.log('Client connected:', client.id);
-    client.on('joinRoom', async (room: string) => {
-      await this.joinRoom(client, room);
-    });
   }
 
-  handleDisconnect(client: Socket) {
-    console.log('Client disconnected:', client.id);
-    const room = this.clients.get(client.id);
-    if (room) {
-      this.server.to(room).emit('message', `${client.id} has left the chat.`);
-      this.clients.delete(client.id);
+  /**
+   * When user logs in, map userId to socketId
+   */
+  @SubscribeMessage('login')
+  handleLogin(
+    @MessageBody()
+    user: { id: string; username: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    this.userSocketMap.set(user.id, client.id);
+    this.socketUserMap.set(client.id, user.id);
+    this.userInfoMap.set(user.id, user);
+
+    console.log(`User ${user.username} logged in`);
+
+    // Send updated user list to all clients
+    this.emitConnectedUsers();
+
+    // ✅ Send pending messages if any
+    const pending = this.pendingMessages.get(user.id);
+    if (pending && pending.length > 0) {
+      pending.forEach((msg) => {
+        client.emit('privateMessage', {
+          from: msg.from,
+          message: msg.message,
+        });
+      });
+
+      // ✅ Remove pending messages after sending
+      this.pendingMessages.delete(user.id);
+
+      console.log(
+        `Delivered ${pending.length} pending message(s) to ${user.username}`,
+      );
     }
   }
 
-  async joinRoom(client: Socket, room: string) {
-    await client.join(room);
-    this.clients.set(client.id, room);
-    console.log(`${client.id} joined room ${room}`);
+  handleDisconnect(client: Socket) {
+    const userId = this.socketUserMap.get(client.id);
+    if (userId) {
+      this.userSocketMap.delete(userId);
+      this.socketUserMap.delete(client.id);
+      this.userInfoMap.delete(userId);
+
+      console.log(`User ${userId} disconnected`);
+      this.emitConnectedUsers();
+    }
   }
 
-  sendMessageToRoom(room: string, message: string) {
-    this.server.to(room).emit('message', message);
+  private emitConnectedUsers() {
+    const users = Array.from(this.userInfoMap.values());
+    this.server.emit('connectedUsers', users);
   }
 
-  @SubscribeMessage('message')
-  handleMessage(client: Socket, message: string) {
-    const room = this.clients.get(client.id);
-    if (room) {
-      this.sendMessageToRoom(room, message);
+  // Map<userId, Message[]>
+  private pendingMessages: Map<string, { from: string; message: string }[]> =
+    new Map();
+
+  /**
+   * Handle private message
+   */
+  @SubscribeMessage('privateMessage')
+  handlePrivateMessage(
+    @MessageBody()
+    data: {
+      from: string;
+      to: string;
+      message: string;
+    },
+  ) {
+    this.sendDirectMessage(data.from, data.to, data.message);
+  }
+
+  /**
+   * Send direct message from one user to another
+   */
+  sendDirectMessage(from: string, to: string, message: string) {
+    const toSocketId = this.userSocketMap.get(to);
+
+    if (toSocketId) {
+      this.server.to(toSocketId).emit('privateMessage', {
+        from,
+        message,
+      });
+      console.log(`Message from ${from} to ${to}: ${message}`);
     } else {
-      console.log('Client not in a room');
+      console.log(`User ${to} is not connected. Saving to pending messages.`);
+
+      const existing = this.pendingMessages.get(to) || [];
+      existing.push({ from, message });
+      this.pendingMessages.set(to, existing);
     }
   }
 }

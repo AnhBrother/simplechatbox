@@ -6,10 +6,21 @@ import { ChatGateway } from './chat.gateway';
 export class ChatController {
   constructor(private readonly chatGateway: ChatGateway) {}
 
-  @Post('send-message')
-  sendMessage(@Body() body: { clientId: string; message: string }) {
-    const { clientId, message } = body;
-    this.chatGateway.handleMessage({ id: clientId } as any, message);
+  /**
+   * Send message via REST API
+   * Body: { from: string, to: string, message: string }
+   */
+  @Post('send')
+  sendMessage(
+    @Body()
+    body: {
+      from: string;
+      to: string;
+      message: string;
+    },
+  ) {
+    const { from, to, message } = body;
+    this.chatGateway.handlePrivateMessage({ from, to, message });
     return { status: 'Message sent' };
   }
 }
