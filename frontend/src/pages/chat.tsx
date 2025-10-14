@@ -11,11 +11,15 @@ const userList = [
 let socket: Socket;
 
 const Chat = () => {
+  interface Message {
+    senderId: string;
+    text: string;
+  }
   const [currentUser, setCurrentUser] = useState<{ id: string; username: string } | null>(null);
   const [receiver, setReceiver] = useState<{ id: string; username: string } | null>(null);
 
   const [message, setMessage] = useState('');
-  const [chatHistory, setChatHistory] = useState<{ [userId: string]: string[] }>({});
+  const [chatHistory, setChatHistory] = useState<{ [userId: string]: Message[] }>({});
   const [connectedUsers, setConnectedUsers] = useState<{ id: string; username: string }[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
@@ -28,9 +32,13 @@ const Chat = () => {
       const sender = data.from;
       setChatHistory((prev) => {
         const existing = prev[sender] || [];
+        const newMessage = {
+          senderId: sender,
+          text: `${userList.find((u) => u.id === sender)?.username || sender}: ${data.message}`,
+        };
         return {
           ...prev,
-          [sender]: [...existing, `${userList.find((u) => u.id === sender)?.username || sender}: ${data.message}`],
+          [sender]: [...existing, newMessage],
         };
       });
     });
@@ -52,6 +60,7 @@ const Chat = () => {
   }, [currentUser]);
 
   const sendMessage = () => {
+    console.log('Sending message:', { from: currentUser?.id, to: receiver?.id, message });
     if (message.trim() && currentUser && receiver) {
       socket.emit('privateMessage', {
         from: currentUser.id,
@@ -61,9 +70,14 @@ const Chat = () => {
 
       setChatHistory((prev) => {
         const existing = prev[receiver.id] || [];
+        const senderId = currentUser.id;
+        const newMessage = {
+          text: message,
+          senderId,
+        }
         return {
           ...prev,
-          [receiver.id]: [...existing, `You: ${message}`],
+          [receiver.id]: [...existing, newMessage],
         };
       });
 
@@ -128,11 +142,33 @@ const Chat = () => {
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #ccc', padding: '10px' }}>
-              {(chatHistory[receiver.id] || []).map((msg, idx) => (
-                <div key={idx} style={{ marginBottom: '8px' }}>
-                  {msg}
-                </div>
-              ))}
+              {(chatHistory[receiver.id] || []).map((msg, idx) => {
+                const isOwnMessage = msg.senderId === currentUser.id;
+
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      justifyContent: isOwnMessage ? 'flex-end' : 'flex-start',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        maxWidth: '60%',
+                        padding: '10px 14px',
+                        borderRadius: '16px',
+                        backgroundColor: isOwnMessage ? '#DCF8C6' : '#f1f0f0',
+                        color: '#000',
+                        textAlign: 'left',
+                      }}
+                    >
+                      {msg.text}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center' }}>
