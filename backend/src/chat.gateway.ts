@@ -21,7 +21,7 @@ export class ChatGateway
 {
   @WebSocketServer() server: Server;
 
-  // Lưu userId -> socketId
+  // Save userId -> socketId
   private userSocketMap: Map<string, string> = new Map();
   private socketUserMap: Map<string, string> = new Map();
   private userInfoMap: Map<string, { id: string; username: string }> =
@@ -60,6 +60,7 @@ export class ChatGateway
         client.emit('privateMessage', {
           from: msg.from,
           message: msg.message,
+          image: msg.image,
         });
       });
 
@@ -90,8 +91,10 @@ export class ChatGateway
   }
 
   // Map<userId, Message[]>
-  private pendingMessages: Map<string, { from: string; message: string }[]> =
-    new Map();
+  private pendingMessages: Map<
+    string,
+    { from: string; message?: string; image?: string }[]
+  > = new Map();
 
   /**
    * Handle private message
@@ -102,29 +105,36 @@ export class ChatGateway
     data: {
       from: string;
       to: string;
-      message: string;
+      message?: string;
+      image?: string;
     },
   ) {
-    this.sendDirectMessage(data.from, data.to, data.message);
+    this.sendDirectMessage(data.from, data.to, data.message, data.image);
   }
 
   /**
    * Send direct message from one user to another
    */
-  sendDirectMessage(from: string, to: string, message: string) {
+  sendDirectMessage(
+    from: string,
+    to: string,
+    message?: string,
+    image?: string,
+  ) {
     const toSocketId = this.userSocketMap.get(to);
 
     if (toSocketId) {
       this.server.to(toSocketId).emit('privateMessage', {
         from,
         message,
+        image,
       });
-      console.log(`Message from ${from} to ${to}: ${message}`);
+      console.log(`Message from ${from} to ${to}: ${message ?? image}`);
     } else {
       console.log(`User ${to} is not connected. Saving to pending messages.`);
 
       const existing = this.pendingMessages.get(to) || [];
-      existing.push({ from, message });
+      existing.push({ from, message, image });
       this.pendingMessages.set(to, existing);
     }
   }
